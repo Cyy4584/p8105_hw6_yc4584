@@ -1,0 +1,311 @@
+---
+title: "p8105_hw6_yc4584"
+author: "Yingyu Cui"
+date: "2024-11-30"
+output: github_document
+---
+
+```{r setup}
+library(modelr)
+library(tidyverse)
+library(mgcv)
+library(broom)
+
+set.seed(1)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+# Problem 1
+
+## First, we will load the data
+```{r load data for problem 1, warning=FALSE, message=FALSE}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+
+weather_df
+```
+
+## Then, we will generate the 5000 bootstrap samples and produce these two quantities
+```{r generate bootstrap samples for problem 1}
+weather_boot_results =
+  weather_df |> 
+  modelr::bootstrap(5000) |> 
+  mutate(
+    strap = map(strap, as_tibble),  
+    models = map(strap, ~ lm(tmax ~ tmin, data = .x)),  
+    glance_results = map(models, glance),  
+    tidy_results = map(models, tidy)  
+  )
+
+# then I will unnest the result and generate the two variables
+weather_r_squared =
+  weather_boot_results |> 
+  unnest(glance_results) |> 
+  select(.id, r.squared)
+
+weather_coefficients =
+  weather_boot_results |> 
+  unnest(tidy_results) |> 
+  select(.id, term, estimate)
+
+calculation_coefficients_results = 
+  weather_coefficients |> 
+  group_by(.id) |> 
+  summarise(
+    log_beta_product = log(prod(estimate)))
+```
+
+## Therefore, we get the estimates of these two quantities for 5000 bootstrap samples.
+```{r show the results for problem 1}
+weather_r_squared
+
+calculation_coefficients_results
+```
+
+## Then, I will plot the distribution of the two quantities and comment
+```{r plot the distribution for problem 1}
+plot_r_squared = 
+  ggplot(weather_r_squared, aes(x = r.squared)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  labs(title = "Distribution of R-squared Squared", x = "R-squared", y = "Density")
+
+plot_log_beta =
+  ggplot(calculation_coefficients_results, aes(x = log_beta_product)) +
+  geom_density(fill = "green", alpha = 0.5) +
+  labs(title = "Distribution of log(beta_0 * beta_1)", x = "log(beta_0 * beta_1)", y = "Density")
+```
+
+## Here I will show the distribution of R-squared and comment
+```{r show the plot of r-squared for problem 1}
+plot_r_squared
+```
+
+Comment:
+For the plot itself, the distribution of r-squared values is unimodal and slightly skewed to the left, with the peak centered around 0.912. Besides, the range of the r-squared values is quite narrow, approximately between 0.88 and 0.94, suggesting that the fitted models could explain much of the variances in response variable (tmax) across bootstrap samples. Also, because the range is relatively narrow, the fitted models are quite stable across bootstrap samples and the relationship between tmax and tmin is quite stable.
+Overall, this distribution indicates that the model is robust and provides consistent performance, as shown by the narrow and high-density peak.
+
+## Then I will show the distribution of log(beta_0 * beta_1) and comment
+```{r show the plot of logbeta for problem 1}
+plot_log_beta
+```
+
+Comment: 
+The distribution appears unimodal and symmetric, indicating that the underlying bootstrap estimates are centered around a stable value. The peak of this plot is around 2.015, suggesting that the product of the coefficients beta_0 and beta_1 is centered around 7.5. The values range approximately from 1.95 to 2.075, indicating a relatively narrow spread. This reflects low variability in the bootstrap estimates of the coefficients' product, without outliers or extreme values. Also, the narrow spread indicates high confidence in the estimated product of the coefficients.
+Overall, the distribution of log(beta_0 * beta_1) suggests that model is stable and this also supports the reliability of the linear regression model used in this analysis.
+
+## Now I will generate the 95% CI for the two quantities
+```{r generate 95% CI for problem 1}
+ci_r_squared =
+  weather_r_squared |> 
+  summarise(
+    ci_lower = quantile(r.squared, 0.025),
+    ci_upper = quantile(r.squared, 0.975)
+  )
+
+# 95% Confidence Interval for log(beta_0 * beta_1)
+ci_log_beta =
+  calculation_coefficients_results |> 
+  summarise(
+    ci_lower = quantile(log_beta_product, 0.025),
+    ci_upper = quantile(log_beta_product, 0.975)
+  )
+
+print("95% Confidence Interval for R-squared:")
+print(ci_r_squared)
+
+print("95% Confidence Interval for log(beta_0 * beta_1):")
+print(ci_log_beta)
+```
+
+
+
+# Problem 2
+
+## First, we will load and clean the data
+```{r load data for problem 2, warning=FALSE, message=FALSE, show_col_types = FALSE}
+homicide_df = 
+  read_csv("data/homicide_data.csv") |> 
+  mutate(city_state = paste(city, state, sep = ", ")) |> 
+  mutate(
+    resolved = ifelse(disposition %in% c("Closed without arrest", "Open/No arrest"), 0, 1)
+  ) |>  # here I create binary variable `unsolved` (1 = unsolved, 0 = solved)
+  filter(
+    !(city %in% c("Dallas", "Phoenix", "Kansas City", "Tulsa")),  
+    victim_race %in% c("White", "Black")                          
+  ) |> 
+  mutate(
+    victim_age = as.numeric(victim_age) 
+  ) |> 
+  filter(!is.na(victim_age))
+```
+
+## Then I will fit the logistic regression model and get the results
+```{r fit logistic regression model for problem 2}
+baltimore_df = 
+  homicide_df |> 
+  filter(city_state == "Baltimore, MD") 
+
+md_logistic_model = 
+  glm(
+  resolved ~ victim_age + victim_sex + victim_race,
+  data = baltimore_df,
+  family = binomial
+  )
+
+md_model_summary = broom::tidy(md_logistic_model)
+
+md_model_summary
+```
+
+## Then, I will obtain the estimate and CI of the adjusted odds ratio for solving homicides comparing male victims to female victims keeping all other variables fixed.
+```{r calculate odds ratio for problem 2}
+est_ci_sex = 
+  md_model_summary |> 
+  filter(term == "victim_sexMale") |> 
+  mutate(
+    odds_ratio = exp(estimate),
+    ci_lower = exp(estimate - 1.96 * std.error),
+    ci_upper = exp(estimate + 1.96 * std.error)
+  ) |> 
+  select(odds_ratio, ci_lower, ci_upper)
+
+est_ci_sex
+```
+## Now we will get the results above in each city
+```{r fit logistic regression model for each city for problem 2}
+city_results =
+  homicide_df |> 
+  group_by(city_state) |> 
+  nest() |> 
+  mutate(
+    model = map(data, ~ glm(
+      resolved ~ victim_age + victim_sex + victim_race,
+      data = .x,
+      family = binomial
+    )),  
+    summary = map(model, ~ tidy(.x)) 
+  ) |> 
+  unnest(summary) |> 
+  filter(term == "victim_sexMale") |> 
+  mutate(
+    odds_ratio = exp(estimate),
+    ci_lower = exp(estimate - 1.96 * std.error),
+    ci_upper = exp(estimate + 1.96 * std.error)       
+  ) |> 
+  select(city_state, odds_ratio, ci_lower, ci_upper)
+
+city_results
+```
+
+## Now I will create a plot that shows the estimated ORs and CIs for each city. 
+```{r plot the results for problem 2}
+city_results_plot =
+  city_results |> 
+  ggplot(aes(x = reorder(city_state, odds_ratio), y = odds_ratio)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.2) +
+  coord_flip() +  
+  labs(
+    title = "Adjusted Odds Ratios and CI for Solving Homicides (Male vs Female)",
+    x = "City, State",
+    y = "Adjusted Odds Ratio (Male vs Female)"
+  ) +
+  theme(
+    axis.text.y = element_text(size = 5))
+
+city_results_plot
+```
+
+
+Comment:
+In this plot, an OR of 1 implies no difference of solving homicides for male vs. female victims. ORs greater than 1 suggest that homicides involving male victims are more likely to be resolved; ORs less than 1 suggest that homicides involving females are more likely to be resolved. 
+Most cities have ORs centered from 0 to 1, indicating that homicides involving females are more likely to be resolved. The highest adjusted OR is in Albuquerque, NM, with an OR of 1.77, indicating the cases involving male victims are 1.77 times more likely to be resolved than those involving female victims in Albuquerque. The lowest adjusted OR is in New York, NY, with an OR of 0.26, indicating that cases involving male is 0.26 times more likely to be resolved than those involving female victims in New York. Most of the adjusted ORs in these cities are between the range of 0.5 and 1.0.
+For CI, some cities have very wide confidence intervals, like San Bernardino, CA and Albuquerque, NM, indicating that the data for these cities may be sparse or the model estimates are less reliable.
+Other cities, such as Baltimore, MD and Chicago, IL, have narrower confidence intervals, reflecting more precise estimates.
+Overall, the variation in ORs across cities highlights differences in how gender might affect homicide resolution rates. The disparities may be due to different unerlying reasons such as the quality of the data, the police department's resources, or the effectiveness of law enforcement in different cities.
+
+
+# Problem 3
+
+## First, I will load and clean the data
+```{r load data for problem 3, warning=FALSE, message=FALSE, show_col_types = FALSE}
+bw_df = 
+  read_csv("data/birthweight.csv") |> 
+  mutate(
+    babysex = factor(babysex, levels = c(1, 2), labels = c("Male", "Female")),
+    frace = factor(frace, 
+                   levels = c(1, 2, 3, 4, 8, 9), 
+                   labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),  
+    malform = factor(malform, levels = c(0, 1), labels = c("Absent", "Present")),  
+    mrace = factor(mrace, 
+                   levels = c(1, 2, 3, 4, 8), 
+                   labels = c("White", "Black", "Asian", "Puerto Rican", "Other")),  
+    parity = as.integer(parity),  
+    pnumlbw = as.integer(pnumlbw), 
+    pnumsga = as.integer(pnumsga)) |> 
+  drop_na()
+
+```
+
+##First, we will create three models and get the results
+```{r fit models for problem 3}
+model_1my =
+  lm(bwt ~ blength + gaweeks + fincome + smoken, data = bw_df)
+
+model_2 =
+  lm(bwt ~ blength + gaweeks, data = bw_df)
+
+model_3 =
+  lm(bwt ~ bhead + blength + babysex + bhead * blength * babysex, data = bw_df)
+
+```
+
+Describe my models:
+- Model 1: This model includes the variables blength, gaweeks, fincome, and smoken. The response variable is child’s birthweight. The model aims to predict birth weight based on baby’s length at birth (centimeteres), gestational age in weeks, family monthly income (in hundreds, rounded), and average number of cigarettes smoked per day during pregnancy using linear model.
+
+## Then, I will show a plot of model residuals against fitted values 
+```{r plot residuals for problem 3}
+resi_fitted_plot = 
+  bw_df |> 
+  add_predictions(model_1my) |> 
+  add_residuals(model_1my) |> 
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point() +
+  labs(
+    title = "Residuals vs Fitted Values (My Model)",
+    x = "Fitted Values",
+    y = "Residuals"
+  )
+
+resi_fitted_plot
+```
+
+
+For this plot, the residuals seems relatively centered around 0, indicating that the model is unbiased and the residuals are homoscedastic. However, there are some outliers with large residuals, suggesting that the model may not fit well for these observations. 
+
