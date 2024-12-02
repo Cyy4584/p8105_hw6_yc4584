@@ -276,7 +276,7 @@ bw_df =
 ##First, we will create three models and get the results
 ```{r fit models for problem 3}
 model_1my =
-  lm(bwt ~ blength + gaweeks + fincome + smoken, data = bw_df)
+  lm(bwt ~ blength + gaweeks + fincome + smoken + blength * gaweeks * fincome * smoken , data = bw_df)
 
 model_2 =
   lm(bwt ~ blength + gaweeks, data = bw_df)
@@ -287,7 +287,7 @@ model_3 =
 ```
 
 Describe my models:
-- Model 1: This model includes the variables blength, gaweeks, fincome, and smoken. The response variable is child’s birthweight. The model aims to predict birth weight based on baby’s length at birth (centimeteres), gestational age in weeks, family monthly income (in hundreds, rounded), and average number of cigarettes smoked per day during pregnancy using linear model.
+- Model 1: This model includes the variables blength, gaweeks, fincome, and smoken. The response variable is child’s birthweight. The model aims to predict birth weight based on baby’s length at birth (centimeteres), gestational age in weeks, family monthly income (in hundreds, rounded), average number of cigarettes smoked per day during pregnancy and their interactions using linear model.
 
 ## Then, I will show a plot of model residuals against fitted values 
 ```{r plot residuals for problem 3}
@@ -321,7 +321,7 @@ bw_cv_df =
 bw_cv_rmse_plot =
   bw_cv_df |> 
   mutate(
-    model_1my = map(train, \(x) lm(bwt ~ blength + gaweeks + fincome + smoken, data = x)),
+    model_1my = map(train, \(x) lm(bwt ~ blength + gaweeks + fincome + smoken + blength * gaweeks * fincome * smoken , data = x)),
     model_2 = map(train, \(x) lm(bwt ~ blength + gaweeks, data = x)),
     model_3 = map(train, \(x) lm(bwt ~ bhead + blength + babysex + bhead * blength * babysex, data = x))
   ) |> 
@@ -345,6 +345,6 @@ bw_cv_rmse_plot
 
 
 As we all know, lower RMSE indicates better predictive accuracy.
-For my model, the RMSE distribution is relatively wide, ranging approximately from 300 to 360, which indicates moderate variability in predictive accuracy across cross-validation samples.
-For model 2, the distribution is similar as my model, which add two more variables fincome and smoken. This suggests that including additional predictors in my model does not significantly improve predictive performance.
+For my model, the RMSE distribution is relatively wide, ranging approximately from 300 to 380, which indicates moderate variability in predictive accuracy across cross-validation samples.
+For model 2, the distribution of my model is similar as model 2. In my model, I added two more variables fincome and smoken and the interactions between four variables. This suggests that including additional predictors in my model does not improve much of the predictive performance.
 For model 3, the RMSE distribution is narrower and shifted lower, with a range of approximately 270 to 315, which indicates better predictive accuracy compared to the other models and the potential value of including interactions between head circumference, length, and sex in the model.
