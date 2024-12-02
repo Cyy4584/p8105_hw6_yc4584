@@ -2,13 +2,13 @@
 title: "p8105_hw6_yc4584"
 author: "Yingyu Cui"
 date: "2024-11-30"
-output: github_document
+output: 
+  github_document
 ---
 
-```{r setup}
+```{r setup, Warning=FALSE, Message=FALSE}
 library(modelr)
 library(tidyverse)
-library(mgcv)
 library(broom)
 
 set.seed(1)
@@ -309,3 +309,42 @@ resi_fitted_plot
 
 For this plot, the residuals seems relatively centered around 0, indicating that the model is unbiased and the residuals are homoscedastic. However, there are some outliers with large residuals, suggesting that the model may not fit well for these observations. 
 
+## Now, I will Make this comparison of these three models in terms of the cross-validated prediction error
+```{r cross-validated prediction error for problem 3}
+bw_cv_df = 
+  crossv_mc(bw_df, 100) |> 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+bw_cv_rmse_plot =
+  bw_cv_df |> 
+  mutate(
+    model_1my = map(train, \(x) lm(bwt ~ blength + gaweeks + fincome + smoken, data = x)),
+    model_2 = map(train, \(x) lm(bwt ~ blength + gaweeks, data = x)),
+    model_3 = map(train, \(x) lm(bwt ~ bhead + blength + babysex + bhead * blength * babysex, data = x))
+  ) |> 
+  mutate(
+    rmse_model_1my = map2_dbl(model_1my, test, rmse),
+    rmse_model_2 = map2_dbl(model_2, test, rmse),
+    rmse_model_3 = map2_dbl(model_3, test, rmse)
+  ) |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) |> 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin()
+
+bw_cv_rmse_plot
+```
+
+
+As we all know, lower RMSE indicates better predictive accuracy.
+For my model, the RMSE distribution is relatively wide, ranging approximately from 300 to 360, which indicates moderate variability in predictive accuracy across cross-validation samples.
+For model 2, the distribution is similar as my model, which add two more variables fincome and smoken. This suggests that including additional predictors in my model does not significantly improve predictive performance.
+For model 3, the RMSE distribution is narrower and shifted lower, with a range of approximately 270 to 315, which indicates better predictive accuracy compared to the other models and the potential value of including interactions between head circumference, length, and sex in the model.
